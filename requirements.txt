@@ -1,0 +1,5 @@
+pandas
+yfinance
+matplotlib
+jinja2
+tabulate
