@@ -9,7 +9,6 @@ def generate_report(results_df, metrics_summary, config):
     """
     生成所有输出文件的主函数。
     """
-    # 创建唯一的输出目录
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     portfolio_name = "_".join(config.PORTFOLIO.keys())
     output_dir = os.path.join("results", f"report_{portfolio_name}_{timestamp}")
@@ -17,19 +16,15 @@ def generate_report(results_df, metrics_summary, config):
     
     print(f"\n报告生成中，文件将保存在: {output_dir}")
 
-    # 1. 在终端打印摘要
     _generate_console_output(metrics_summary)
 
-    # 2. 保存每日数据为CSV
     csv_path = os.path.join(output_dir, 'daily_results.csv')
     results_df.to_csv(csv_path)
     print(f"每日数据已保存到: {csv_path}")
 
-    # 3. 生成并保存图表
     chart_paths = _generate_charts(results_df, output_dir)
     print("图表已生成。")
 
-    # 4. 生成HTML报告
     html_path = os.path.join(output_dir, 'summary_report.html')
     _generate_html_report(metrics_summary, chart_paths, config, html_path)
     print(f"HTML报告已生成: {html_path}")
@@ -54,6 +49,16 @@ def _generate_console_output(metrics_summary):
     print("="*54)
 
 def _generate_charts(results_df, output_dir):
+    # --- FIX START: 解决中文乱码问题 ---
+    try:
+        # 优先使用黑体，如果系统没有，会回退到默认字体
+        plt.rcParams['font.sans-serif'] = ['SimHei'] 
+        # 解决负号显示问题
+        plt.rcParams['axes.unicode_minus'] = False 
+    except Exception as e:
+        print(f"警告：设置中文字体失败，图表中的中文可能无法正常显示。错误: {e}")
+    # --- FIX END ---
+        
     plt.style.use('seaborn-v0_8-whitegrid')
     chart_paths = {}
 
@@ -61,7 +66,8 @@ def _generate_charts(results_df, output_dir):
     fig1, ax1 = plt.subplots(figsize=(12, 7))
     for col in results_df.columns:
         if '_Value' in col or 'Invested' in col:
-            label = col.replace('_Value', '').replace('Total_Invested', '总投入本金')
+            # 修改了标签，使其更具可读性
+            label = '投资组合' if col == 'Portfolio_Value' else col.replace('_Value', '').replace('Total_Invested', '总投入本金')
             ax1.plot(results_df.index, results_df[col], label=label)
     
     ax1.set_title('资产增长曲线', fontsize=16)
@@ -76,10 +82,10 @@ def _generate_charts(results_df, output_dir):
 
     # 回撤曲线
     fig2, ax2 = plt.subplots(figsize=(12, 7))
-    from utils.metrics import calculate_max_drawdown # 避免循环导入
+    from utils.metrics import calculate_max_drawdown
     for col in results_df.columns:
         if '_Value' in col:
-            label = col.replace('_Value', '')
+            label = '投资组合' if col == 'Portfolio_Value' else col.replace('_Value', '')
             cumulative_max = results_df[col].cummax()
             drawdown = (results_df[col] - cumulative_max) / cumulative_max
             ax2.plot(drawdown.index, drawdown, label=label, alpha=0.7)
@@ -101,13 +107,14 @@ def _generate_html_report(metrics_summary, chart_paths, config, output_path):
     env = Environment(loader=FileSystemLoader(os.path.join('reporting', 'templates')))
     template = env.get_template('report_template.html')
 
-    # 将指标摘要转换为HTML表格
     headers = ["指标"] + list(metrics_summary.keys())
     rows = []
-    for metric_name in metrics_summary['Portfolio'].keys():
+    # 保证指标顺序
+    metric_order = ['最终市值', '总投入本金', '总收益率', '年化收益率(CAGR)', '最大回撤']
+    for metric_name in metric_order:
         row = [metric_name]
-        for name, metrics in metrics_summary.items():
-            value = metrics[metric_name]
+        for name in headers[1:]: # 按表头顺序取数据
+            value = metrics_summary[name][metric_name]
             if isinstance(value, float) and "率" in metric_name or "回撤" in metric_name:
                 row.append(f"{value:.2%}")
             elif isinstance(value, float):
@@ -117,7 +124,8 @@ def _generate_html_report(metrics_summary, chart_paths, config, output_path):
         rows.append(row)
 
     html_table = tabulate(rows, headers=headers, tablefmt="html")
-
+    
+    # --- FIX START: 解决 UndefinedError ---
     template_vars = {
         "portfolio_name": " / ".join(config.PORTFOLIO.keys()),
         "start_date": config.START_DATE,
@@ -125,8 +133,10 @@ def _generate_html_report(metrics_summary, chart_paths, config, output_path):
         "investment_strategy": f"每周{config.INVESTMENT_DAY}定投 ${config.INVESTMENT_AMOUNT:,.2f}",
         "metrics_table": html_table,
         "growth_chart_path": chart_paths['growth'],
-        "drawdown_chart_path": chart_paths['drawdown']
+        "drawdown_chart_path": chart_paths['drawdown'],
+        "report_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S") # 添加时间戳变量
     }
+    # --- FIX END ---
 
     html_out = template.render(template_vars)
     with open(output_path, 'w', encoding='utf-8') as f:
