@@ -1,4 +1,5 @@
 import pandas as pd
+from .portfolio import Account # 导入我们新创建的 Account 类
 
 def run_backtest(config, prices_df, dividends_data):
     """
@@ -15,81 +16,72 @@ def run_backtest(config, prices_df, dividends_data):
     investment_day_name = config.INVESTMENT_DAY
     cost_conf = config.TRANSACTION_COST
 
-    # 将星期名转换为数字 (Monday=0, Sunday=6)
     day_mapping = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3, 'Friday': 4}
     investment_day_num = day_mapping[investment_day_name]
 
-    # 初始化账户
-    # 用户投资组合账户
-    portfolio_shares = {ticker: 0.0 for ticker in portfolio_conf.keys()}
-    
-    # 基准账户
-    benchmark_shares = {bm: 0.0 for bm in benchmarks_conf}
+    # 初始化账户 - 使用新的 Account 类
+    portfolio_account = Account("Portfolio", tickers=list(portfolio_conf.keys()))
+    benchmark_accounts = {bm: Account(bm, tickers=[bm]) for bm in benchmarks_conf}
 
     # 记录每日数据的列表
     daily_records = []
-    total_invested_capital = 0.0
-
-    # 生成回测日期范围
+    
     date_range = pd.date_range(start=start_date, end=end_date)
 
     for current_date in date_range:
         # --- 1. 处理定投 ---
         if current_date.weekday() == investment_day_num:
-            # 寻找实际交易日（如果当天非交易日，则顺延）
             trade_date = current_date
             while trade_date not in prices_df.index and trade_date <= prices_df.index.max():
                 trade_date += pd.Timedelta(days=1)
             
             if trade_date in prices_df.index:
-                total_invested_capital += investment_amount
-                
                 # 投资用户组合
+                portfolio_account.add_investment(investment_amount)
                 for ticker, weight in portfolio_conf.items():
                     price = prices_df.loc[trade_date, ticker]
                     amount_to_invest = investment_amount * weight
                     cost = _calculate_cost(amount_to_invest, cost_conf)
                     net_investment = amount_to_invest - cost
                     if price > 0:
-                        portfolio_shares[ticker] += net_investment / price
+                        shares_to_buy = net_investment / price
+                        portfolio_account.buy(ticker, shares_to_buy)
 
                 # 投资基准
-                for bm in benchmarks_conf:
-                    price = prices_df.loc[trade_date, bm]
+                for bm_name, bm_account in benchmark_accounts.items():
+                    bm_account.add_investment(investment_amount)
+                    price = prices_df.loc[trade_date, bm_name]
                     cost = _calculate_cost(investment_amount, cost_conf)
                     net_investment = investment_amount - cost
                     if price > 0:
-                        benchmark_shares[bm] += net_investment / price
+                        shares_to_buy = net_investment / price
+                        bm_account.buy(bm_name, shares_to_buy)
 
         # --- 2. 处理股息再投资 ---
-        all_holdings = {**portfolio_shares, **benchmark_shares}
-        for ticker, shares in all_holdings.items():
-            if shares > 0 and ticker in dividends_data and current_date in dividends_data[ticker].index:
-                dividend_per_share = dividends_data[ticker][current_date]
-                total_dividend = shares * dividend_per_share
-                
-                price = prices_df.loc[current_date, ticker]
-                if price > 0:
-                    reinvest_shares = total_dividend / price
-                    if ticker in portfolio_shares:
-                        portfolio_shares[ticker] += reinvest_shares
-                    if ticker in benchmark_shares:
-                        benchmark_shares[ticker] += reinvest_shares
+        all_accounts = [portfolio_account] + list(benchmark_accounts.values())
+        for account in all_accounts:
+            for ticker, shares in account.shares.items():
+                if shares > 0 and ticker in dividends_data and current_date in dividends_data[ticker].index:
+                    dividend_per_share = dividends_data[ticker][current_date]
+                    total_dividend = shares * dividend_per_share
+                    price = prices_df.loc[current_date, ticker]
+                    if price > 0:
+                        reinvest_shares = total_dividend / price
+                        account.buy(ticker, reinvest_shares)
 
         # --- 3. 记录每日快照 ---
         if current_date in prices_df.index:
-            # 计算用户组合市值
-            portfolio_value = sum(portfolio_shares[t] * prices_df.loc[current_date, t] for t in portfolio_conf.keys())
-            
-            # 计算基准市值
-            benchmark_values = {bm: benchmark_shares[bm] * prices_df.loc[current_date, bm] for bm in benchmarks_conf}
+            current_day_prices = prices_df.loc[current_date]
             
             record = {
                 'Date': current_date,
-                'Portfolio_Value': portfolio_value,
-                'Total_Invested': total_invested_capital
+                'Portfolio_Value': portfolio_account.get_market_value(current_day_prices),
+                'Total_Invested': portfolio_account.total_invested
             }
-            record.update({f'{bm}_Value': val for bm, val in benchmark_values.items()})
+            
+            for bm_name, bm_account in benchmark_accounts.items():
+                record[f'{bm_name}_Value'] = bm_account.get_market_value(current_day_prices)
+                
             daily_records.append(record)
 
     print("回测引擎完成。")
