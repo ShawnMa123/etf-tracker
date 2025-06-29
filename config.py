@@ -1,7 +1,7 @@
 # --- 投资组合与基准配置 ---
 PORTFOLIO = {
     'QQQ': 0.9,
-    'TSLA': 0.1
+    'IBKR': 0.1
 }
 BENCHMARKS = ['SPY', 'DIA', 'QQQ']
 

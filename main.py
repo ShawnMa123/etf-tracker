@@ -4,35 +4,30 @@ from data import loader
 from backtesting import engine
 from reporting import generator
 from utils import metrics
-from strategies import create_strategy # 导入策略工厂
+from strategies import create_strategy
 
 def main():
-    """
-    项目主入口函数
-    """
     print("开始执行ETF策略回测...")
     
     all_tickers = sorted(list(set(list(config.PORTFOLIO.keys()) + config.BENCHMARKS)))
     if config.STRATEGY_CONFIG['type'] == 'sma_crossover':
-        # 确保用于生成信号的标的也被下载
         all_tickers = sorted(list(set(all_tickers + [config.STRATEGY_CONFIG['ticker_for_signal']])))
     
     try:
-        prices_df, dividends_data = loader.get_data(
+        # 不再需要接收 dividends_data
+        prices_df = loader.get_data(
             all_tickers, config.START_DATE, config.END_DATE
         )
     except Exception as e:
         print(f"数据加载失败: {e}")
         return
 
-    # --- 新增步骤：生成交易信号 ---
     print(f"正在使用策略 '{config.STRATEGY_CONFIG['type']}' 生成交易信号...")
     strategy = create_strategy(config.STRATEGY_CONFIG)
     signals = strategy.generate_signals(prices_df)
-    # --- 结束新增步骤 ---
 
-    # 将信号传递给回测引擎
-    results_df = engine.run_backtest(config, prices_df, dividends_data, signals)
+    # 不再需要传递 dividends_data
+    results_df = engine.run_backtest(config, prices_df, signals)
     
     if results_df.empty:
         print("回测没有产生任何结果，请检查日期范围或输入。")
