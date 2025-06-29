@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ETF 定投回测报告</title>
+    <!-- Plotly.js will be loaded from CDN specified in the generated chart HTML -->
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -62,14 +63,6 @@
             background-color: #f8f9fa;
         }
 
-        img {
-            max-width: 100%;
-            height: auto;
-            margin-top: 20px;
-            border-radius: 4px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-        }
-
         .config-list {
             list-style-type: none;
             padding: 0;
@@ -92,6 +85,10 @@
             font-size: 0.9em;
             color: #6c757d;
         }
+
+        .chart-container {
+            margin-top: 20px;
+        }
     </style>
 </head>
 
@@ -110,15 +107,19 @@
         {{ metrics_table|safe }}
 
         <h2>资产增长曲线</h2>
-        <img src="{{ growth_chart_path }}" alt="资产增长曲线">
+        <div class="chart-container">
+            {{ growth_chart_html|safe }}
+        </div>
 
         <h2>回撤曲线</h2>
-        <img src="{{ drawdown_chart_path }}" alt="回撤曲线">
+        <div class="chart-container">
+            {{ drawdown_chart_html|safe }}
+        </div>
 
-        <!-- FIX START: 新增价格走势图部分 -->
         <h2>各投资标的价格走势 (归一化)</h2>
-        <img src="{{ price_performance_chart_path }}" alt="各投资标的价格走势">
-        <!-- FIX END -->
+        <div class="chart-container">
+            {{ price_performance_chart_html|safe }}
+        </div>
 
         <div class="footer">
             报告生成时间: {{ report_time }}

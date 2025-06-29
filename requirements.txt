@@ -1,5 +1,5 @@
 pandas
 yfinance
-matplotlib
+plotly
 jinja2
 tabulate

@@ -1,6 +1,7 @@
 import os
 import pandas as pd
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from jinja2 import Environment, FileSystemLoader
 from datetime import datetime
 from tabulate import tabulate
@@ -22,12 +23,12 @@ def generate_report(results_df, prices_df, metrics_summary, config):
     results_df.to_csv(csv_path)
     print(f"每日数据已保存到: {csv_path}")
 
-    # --- FIX: 将 output_dir 作为参数传递给 _generate_charts ---
-    chart_paths = _generate_charts(results_df, prices_df, config, output_dir)
-    print("图表已生成。")
+    # 生成 Plotly 图表的 HTML 代码片段
+    charts_html = _generate_interactive_charts(results_df, prices_df, config)
+    print("交互式图表已生成。")
 
     html_path = os.path.join(output_dir, 'summary_report.html')
-    _generate_html_report(metrics_summary, chart_paths, config, html_path)
+    _generate_html_report(metrics_summary, charts_html, config, html_path)
     print(f"HTML报告已生成: {html_path}")
 
 
@@ -53,81 +54,67 @@ def _generate_console_output(metrics_summary):
     print("="*54)
 
 
-# --- FIX: 在函数签名中接收 output_dir 参数 ---
-def _generate_charts(results_df, prices_df, config, output_dir):
+def _generate_interactive_charts(results_df, prices_df, config):
     """
-    生成所有图表并保存到指定的输出目录。
+    使用 Plotly 生成所有交互式图表，并返回其HTML代码。
     """
-    plt.style.use('seaborn-v0_8-whitegrid')
-    chart_paths = {}
-
-    # 资产增长曲线
-    fig1, ax1 = plt.subplots(figsize=(12, 7))
+    charts_html = {}
+    
+    # --- 图表1: 资产增长曲线 ---
+    fig_growth = go.Figure()
     for col in results_df.columns:
         if '_Value' in col or 'Invested' in col:
             label = 'Portfolio' if col == 'Portfolio_Value' else col.replace('_Value', '').replace('Total_Invested', 'Total Invested')
-            ax1.plot(results_df.index, results_df[col], label=label)
-    
-    ax1.set_title('Asset Growth Curve', fontsize=16)
-    ax1.set_xlabel('Date')
-    ax1.set_ylabel('Market Value ($)')
-    ax1.legend()
-    ax1.grid(True)
-    # 现在 output_dir 在这里是已定义的
-    growth_chart_path = os.path.join(output_dir, 'growth_curve.png')
-    plt.savefig(growth_chart_path)
-    plt.close(fig1)
-    chart_paths['growth'] = 'growth_curve.png'
+            fig_growth.add_trace(go.Scatter(x=results_df.index, y=results_df[col], mode='lines', name=label))
+            
+    fig_growth.update_layout(
+        title_text='<b>Asset Growth Curve</b>',
+        xaxis_title='Date',
+        yaxis_title='Market Value ($)',
+        legend_title_text='Legend',
+        hovermode='x unified' # 统一的X轴悬停效果
+    )
+    charts_html['growth'] = fig_growth.to_html(full_html=False, include_plotlyjs='cdn')
 
-    # 回撤曲线
-    fig2, ax2 = plt.subplots(figsize=(12, 7))
-    from utils.metrics import calculate_max_drawdown
+    # --- 图表2: 回撤曲线 ---
+    fig_drawdown = go.Figure()
     for col in results_df.columns:
         if '_Value' in col:
             label = 'Portfolio' if col == 'Portfolio_Value' else col.replace('_Value', '')
             cumulative_max = results_df[col].cummax()
             drawdown = (results_df[col] - cumulative_max) / cumulative_max
-            ax2.plot(drawdown.index, drawdown, label=label, alpha=0.7)
+            fig_drawdown.add_trace(go.Scatter(x=drawdown.index, y=drawdown, mode='lines', name=label))
+            
+    fig_drawdown.update_layout(
+        title_text='<b>Drawdown Curve</b>',
+        xaxis_title='Date',
+        yaxis_title='Drawdown',
+        yaxis_tickformat='.0%', # Y轴格式化为百分比
+        hovermode='x unified'
+    )
+    charts_html['drawdown'] = fig_drawdown.to_html(full_html=False, include_plotlyjs='cdn')
 
-    ax2.set_title('Drawdown Curve', fontsize=16)
-    ax2.set_xlabel('Date')
-    ax2.set_ylabel('Drawdown')
-    ax2.yaxis.set_major_formatter(plt.FuncFormatter('{:.0%}'.format))
-    ax2.legend()
-    ax2.grid(True)
-    drawdown_chart_path = os.path.join(output_dir, 'drawdown_curve.png')
-    plt.savefig(drawdown_chart_path)
-    plt.close(fig2)
-    chart_paths['drawdown'] = 'drawdown_curve.png'
-
-    # 各投资标的价格走势
-    fig3, ax3 = plt.subplots(figsize=(12, 7))
+    # --- 图表3: 各投资标的价格走势 (归一化) ---
+    fig_price = go.Figure()
     all_tickers = sorted(list(set(list(config.PORTFOLIO.keys()) + config.BENCHMARKS)))
     if config.STRATEGY_CONFIG['type'] == 'sma_crossover':
         all_tickers = sorted(list(set(all_tickers + [config.STRATEGY_CONFIG['ticker_for_signal']])))
 
-    # 确保所有tickers都在prices_df中，避免KeyError
     valid_tickers = [t for t in all_tickers if t in prices_df.columns]
-    if not valid_tickers:
-        print("警告: 无法生成价格走势图，因为没有有效的tickers。")
-        return chart_paths
-        
-    normalized_prices = (prices_df[valid_tickers] / prices_df[valid_tickers].iloc[0]) * 100
-    
-    for ticker in valid_tickers:
-        ax3.plot(normalized_prices.index, normalized_prices[ticker], label=ticker)
-        
-    ax3.set_title('Normalized Price Performance of All Assets', fontsize=16)
-    ax3.set_xlabel('Date')
-    ax3.set_ylabel('Normalized Price (Start = 100)')
-    ax3.legend()
-    ax3.grid(True)
-    price_chart_path = os.path.join(output_dir, 'price_performance.png')
-    plt.savefig(price_chart_path)
-    plt.close(fig3)
-    chart_paths['price_performance'] = 'price_performance.png'
+    if valid_tickers:
+        normalized_prices = (prices_df[valid_tickers] / prices_df[valid_tickers].iloc[0]) * 100
+        for ticker in valid_tickers:
+            fig_price.add_trace(go.Scatter(x=normalized_prices.index, y=normalized_prices[ticker], mode='lines', name=ticker))
+            
+        fig_price.update_layout(
+            title_text='<b>Normalized Price Performance of All Assets</b>',
+            xaxis_title='Date',
+            yaxis_title='Normalized Price (Start = 100)',
+            hovermode='x unified'
+        )
+        charts_html['price_performance'] = fig_price.to_html(full_html=False, include_plotlyjs='cdn')
 
-    return chart_paths
+    return charts_html
 
 
 def _get_strategy_description(config):
@@ -160,8 +147,10 @@ def _get_strategy_description(config):
         return f"自定义策略, 每次买入 ${amount:,.2f}"
 
 
-def _generate_html_report(metrics_summary, chart_paths, config, output_path):
-    # 此函数无变化
+def _generate_html_report(metrics_summary, charts_html, config, output_path):
+    """
+    将图表的HTML代码嵌入到Jinja2模板中。
+    """
     env = Environment(loader=FileSystemLoader(os.path.join('reporting', 'templates')))
     template = env.get_template('report_template.html')
 
@@ -188,9 +177,10 @@ def _generate_html_report(metrics_summary, chart_paths, config, output_path):
         "end_date": config.END_DATE,
         "investment_strategy": _get_strategy_description(config),
         "metrics_table": html_table,
-        "growth_chart_path": chart_paths.get('growth'),
-        "drawdown_chart_path": chart_paths.get('drawdown'),
-        "price_performance_chart_path": chart_paths.get('price_performance'),
+        # 传递图表的HTML代码
+        "growth_chart_html": charts_html.get('growth'),
+        "drawdown_chart_html": charts_html.get('drawdown'),
+        "price_performance_chart_html": charts_html.get('price_performance'),
         "report_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
 
