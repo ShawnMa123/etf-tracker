@@ -205,3 +205,13 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+
+# Project-specific ignores
+# 我们的数据缓存和结果目录不应上传到git
+cache/
+results/
+
+# OS-specific
+.DS_Store
+Thumbs.db
