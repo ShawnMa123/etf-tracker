@@ -51,4 +51,22 @@ def get_data(tickers, start_date, end_date):
     # 合并所有价格数据到一个DataFrame，并向前填充缺失值
     prices_df = pd.DataFrame(price_data).ffill().bfill()
     
-    return prices_df, dividend_data
+    # --- FIX START: 统一处理时区问题 ---
+    # 检查价格数据的索引是否包含时区信息
+    if prices_df.index.tz is not None:
+        # 如果有，则移除时区信息，使其变为 tz-naive
+        prices_df.index = prices_df.index.tz_localize(None)
+        
+    # 对股息数据的索引也进行同样的处理
+    naive_dividend_data = {}
+    for ticker, div_series in dividend_data.items():
+        if div_series.index.tz is not None:
+            # 移除时区信息
+            naive_dividend_data[ticker] = div_series.tz_localize(None)
+        else:
+            # 如果本来就没有时区信息，直接使用
+            naive_dividend_data[ticker] = div_series
+    # --- FIX END ---
+    
+    # 返回处理过的、时区统一的数据
+    return prices_df, naive_dividend_data
